@@ -22,7 +22,7 @@ using namespace glm;
 C3dglTerrain terrain, water;
 
 // models
-C3dglModel tree, wolf, bird;
+C3dglModel tree, wolf;
 
 // skybox 
 C3dglSkyBox skybox;
@@ -43,8 +43,7 @@ GLuint idTexCloud1, idTexCloud2, idTexCloud3, idTexCloud4;
 GLuint reflectionFBO, idTexReflection;
 // wolf texture id
 GLuint idTexWolf;
-// goose texture id
-GLuint idTexbird;
+
 
 // bitmap for textures
 C3dglBitmap bm;
@@ -69,12 +68,6 @@ wolfState currentState = IDLE;
 float counter = 0;
 vec3 targetPos = vec3(0,0,0);
 
-//goose variables
-vec3 birdPos = vec3(0, 0, 0);	// iniital wolf position
-vec3 birdVel = vec3(0, 0, 0);
-float birdSigned_angle;
-vec3 birdTargetPos = vec3(0, 0, 0);
-
 
 //clouds params with saved values
 const int NCLOUDS = 10000; //8000 
@@ -88,8 +81,6 @@ const float cloudParticleSize = 550; // 550
 //tree params
 const int numberOfTrees = 300;
 vec3 treePositions[numberOfTrees];
-
-
 
 // The View Matrix
 mat4 matrixView;
@@ -313,7 +304,6 @@ bool init()
 	if (!water.load("models\\watermap.png", 50, &programWater)) return false;
 	programBasic.use();
 	if (!wolf.load("models\\wolf.dae")) return false;
-	if (!bird.load("models\\birdy\\bird.gltf")) return false;
 	if (!tree.load("models\\tree\\tree.3ds")) return false;
 	tree.loadMaterials("models\\tree");
 	tree.getMaterial(0)->loadTexture(GL_TEXTURE4, "models\\tree", "pine-trunk-norm.dds");
@@ -329,16 +319,6 @@ bool init()
 		"models\\mountain\\mup.tga",
 		"models\\mountain\\mdn.tga")) return false;
 
-	bird.loadAnimations();
-	glActiveTexture(GL_TEXTURE0);
-	bm.load("models\\birdy\\birdtex.jpg", GL_RGBA);
-	if (!bm.getBits()) return false;
-	glGenTextures(1, &idTexbird);
-	glBindTexture(GL_TEXTURE_2D, idTexbird);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, bm.getWidth(), bm.getHeight(), 0, GL_RGBA,
-		GL_UNSIGNED_BYTE, bm.getBits());
-	programBasic.sendUniform("texture0", 0);
 	wolf.loadAnimations();
 	///////////////////////////// load the wolf textures
 	glActiveTexture(GL_TEXTURE0);
@@ -591,78 +571,6 @@ vec3 findWalkablePointInRadius(vec3 position, float radius) {
 	return vec3(point.x,0,point.z);
 }
 
-vec3 findSwimmablePointInRadius(vec3 position, float radius) {
-	vec3 point;
-
-	// Random number generators
-	random_device rd;
-	mt19937 generator(rd());
-	uniform_real_distribution<float> angleDist(0.0f, 2.0f * M_PI); // Random angle [0, 2?]
-	uniform_real_distribution<float> radiusDist(0.0f, 1.0f);       // Random radius [0, 1]
-
-	float angle = angleDist(generator); // Random angle
-	float r = radius * sqrt(radiusDist(generator)); // Random radius (sqrt ensures uniform distribution in the area)
-
-	// Convert polar coordinates to Cartesian coordinates
-	float x = position.x + r * cos(angle);
-	float z = position.z + r * sin(angle);
-
-	point = vec3(x, terrain.getInterpolatedHeight(x, z), z);
-
-	while (point.y > waterLevel) {
-		float angle = angleDist(generator);
-		float r = radius * sqrt(radiusDist(generator));
-		float x = position.x + r * cos(angle);
-		float z = position.z + r * sin(angle);
-		point = vec3(x, terrain.getInterpolatedHeight(x, z), z);
-	}
-
-
-	return vec3(point.x, waterLevel, point.z);
-}
-void birdMove(vec3 targetPos) {
-	vec3 direction = normalize(targetPos - birdPos);
-
-	float speed = 0.04f;
-	birdVel = direction * speed;
-
-	birdSigned_angle = atan2(direction.x, direction.z) - atan2(vec3(0, 0, 1).x, vec3(0, 0, 1).z);
-
-}
-
-
-void renderBird(mat4& matrixView, float time, float deltaTime) {
-	mat4 m = matrixView;
-	programBasic.use();
-	programBasic.sendUniform("lightAmbient.color", vec3(1.0, 1.0, 1.0));
-	programBasic.sendUniform("materialAmbient", vec3(0.1f, 0.1f, 0.1f)); // white background for textures
-	programBasic.sendUniform("materialDiffuse", vec3(1.0f, 1.0f, 1.0f));
-	programBasic.sendUniform("lightDir.direction", vec3(1.0, 0.5, 1.0));
-	programBasic.sendUniform("lightDir.diffuse", vec3(1.0, 1.0, 1.0));
-
-	birdMove(birdTargetPos);
-
-	if (distance(targetPos, wolfPos) > 1) {
-		wolfPos = wolfPos + wolfVel;
-		animTime = time;
-	}
-	else
-	{
-		birdTargetPos = vec3(randomNumberGen(100, -100), randomNumberGen(50, -100), randomNumberGen(100, -100));
-	}
-
-
-
-	std::vector<mat4> transforms;
-	bird.getAnimData(0, time, transforms);
-	programBasic.sendUniform("bones", &transforms[0], transforms.size());
-	m = matrixView;
-	m = translate(m, birdPos);
-	m = rotate(m, radians(1.0f) + signed_angle, vec3(0.f, 1.f, 0.f));
-	m = scale(m, vec3(1.2f, 1.2f, 1.2f));
-	bird.render(m);
-
-}
 
 
 void renderWolf(mat4& matrixView, float time, float deltaTime) {
@@ -867,7 +775,6 @@ void renderScene(mat4& matrixView, float time, float deltaTime)
 	renderClouds(matrixView, time, deltaTime);
 	renderTrees(matrixView, time, deltaTime);
 	renderWolf(matrixView, time, deltaTime);
-	//renderBird(matrixView, time, deltaTime);
 }
 
 void renderReflection(mat4& matrixView, float time, float deltaTime)
